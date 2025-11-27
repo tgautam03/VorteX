@@ -6,10 +6,12 @@ from xlb import ComputeBackend, PrecisionPolicy
 from xlb.velocity_set.d2q9 import D2Q9
 from xlb.grid import grid_factory
 from xlb.operator.collision.bgk import BGK
+from xlb.operator.collision.kbc import KBC
 from xlb.operator.equilibrium.quadratic_equilibrium import QuadraticEquilibrium
 from xlb.operator.boundary_condition import (
     ZouHeBC,
     FullwayBounceBackBC,
+    RegularizedBC,
 )
 from xlb.operator.stream import Stream
 from xlb.operator.macroscopic import Macroscopic
@@ -68,21 +70,20 @@ u_inlet = np.array([u_max, 0.0]) # ux, uy
 
 zouhe_inlet = ZouHeBC(
     bc_type="velocity",
-    prescribed_value=u_inlet,
+    prescribed_values=u_inlet,
 )
-# Workaround for attribute mismatch in ZouHeBC (uses prescribed_values in methods but prescribed_value in init)
-# Convert to JAX array for proper BC application
-zouhe_inlet.prescribed_values = jnp.array(zouhe_inlet.prescribed_value)
 
 zouhe_outlet = ZouHeBC(
     bc_type="pressure",
-    prescribed_value=1.0, # Scalar for pressure
+    prescribed_values=1.0, # Scalar for pressure
 )
-# Workaround - convert to JAX array
-zouhe_outlet.prescribed_values = jnp.array(zouhe_outlet.prescribed_value)
 
-wall_bc = FullwayBounceBackBC()
+wall_bc = ZouHeBC(
+    bc_type="pressure",
+    prescribed_values=1.0, # Scalar for pressure
+)
 
+# wall_bc = FullwayBounceBackBC()
 cylinder_bc = FullwayBounceBackBC()
 
 # Get IDs
@@ -109,12 +110,13 @@ bc_mask = bc_mask.at[0, cylinder_mask].set(BC_CYLINDER)
 # Only the cylinder needs missing_mask set (solid obstacle)
 
 # List of BCs for iteration
+# bcs = [zouhe_inlet, zouhe_outlet, wall_bc, cylinder_bc]
 bcs = [zouhe_inlet, zouhe_outlet, wall_bc, cylinder_bc]
 
 
 # --- Operators ---
 eq_op = QuadraticEquilibrium()
-collision_op = BGK()
+collision_op = KBC() #BGK()
 stream_op = Stream()
 macroscopic_op = Macroscopic()
 
