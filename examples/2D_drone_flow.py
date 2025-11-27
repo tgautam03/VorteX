@@ -68,10 +68,10 @@ def main():
         initial_state=initial_drone_state,
         units=units,
         save_interval=50,
-        hover=False  # Set to True for hovering, False for landing
+        hover=True  # Set to True for hovering, False for landing
     )
     
-    num_steps = 20000
+    num_steps = 40000
     sim.run(num_steps=num_steps)
     
     # ===== 5. SAVE DATA =====

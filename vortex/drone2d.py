@@ -113,23 +113,42 @@ class Drone2D:
         """
         cx, cy = state.pos[0], state.pos[1]
         theta = state.angle
+        angular_vel = state.angular_vel
         
         # Base Thrust (calculated to hover)
         base_thrust = self.BASE_THRUST
+
+        # Random noise for landing or hovering
+        k1, k2 = jax.random.split(key)
+        noise_left = jax.random.uniform(k1, minval=-0.1, maxval=0.1) 
+        noise_right = jax.random.uniform(k2, minval=-0.1, maxval=0.1) 
         
         if hover and target_height is not None:
-            # --- HOVERING MODE (Altitude Control) ---
-            altitude_error = target_height - cy
-            thrust_adjustment = 1 * altitude_error  # Proportional control (tuned gain)
+            # --- HOVERING MODE (PD Control) ---
             
-            thrust_left = base_thrust + thrust_adjustment/2
-            thrust_right = base_thrust + thrust_adjustment/2
+            # 1. Altitude Control (P Controller)
+            altitude_error = target_height - cy
+            alt_gain = 1.0
+            thrust_adj_vertical = alt_gain * altitude_error
+            
+            # 2. Angle Stabilization (PD Controller)
+            target_angle = 0.0
+            angle_error = target_angle - theta
+            
+            # --- TUNING FIX: Reduced Proportional (kp) gain significantly ---
+            # kp = 0.5 was too high. Trying a much smaller value.
+            # kd = 0.3 was probably okay, but we'll try a slightly lower, more conservative value.
+            kp = 0.08   # Proportional gain (reduced from 0.5)
+            kd = 0.2    # Derivative gain (Dampens the spin)
+            
+            # PD Control equation
+            thrust_adj_angle = (kp * angle_error) - (kd * angular_vel)
+
+            # Mix controls:
+            thrust_left = base_thrust * (1.0 + noise_left) + (thrust_adj_vertical / 2.0) + thrust_adj_angle
+            thrust_right = base_thrust * (1.0 + noise_right) + (thrust_adj_vertical / 2.0) - thrust_adj_angle
         else:
             # --- LANDING MODE (Random Noise) ---
-            k1, k2 = jax.random.split(key)
-            noise_left = jax.random.uniform(k1, minval=-0.1, maxval=0.1) 
-            noise_right = jax.random.uniform(k2, minval=-0.1, maxval=0.1) 
-            
             thrust_left = base_thrust * (1.0 + noise_left)
             thrust_right = base_thrust * (1.0 + noise_right)
         

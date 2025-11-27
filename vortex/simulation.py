@@ -227,8 +227,7 @@ class DroneSimulation2D:
                 self.saved_forces.append(f_data)
             
             if i % 100 == 0:
-                print(f"Step {i}: Drone X={self.state.pos[0]:.2f}, Drone Y={self.state.pos[1]:.2f}, "
-                      f"Vy={self.state.vel[1]:.4f}, Angle={self.state.angle:.2f}")
+                print(f"Step {i}: Drone X={self.state.pos[0]:.2f}, Drone Y={self.state.pos[1]:.2f}, Angle={self.state.angle:.2f}")
                 
                 # Check for NaN
                 if jnp.isnan(self.state.pos[1]) or jnp.isnan(self.state.vel[1]):
