@@ -14,24 +14,46 @@ from xlb.operator.boundary_condition import (
 from xlb.operator.stream import Stream
 from xlb.operator.macroscopic import Macroscopic
 from xlb.helper.nse_solver import create_nse_fields
-from jax.tree_util import register_pytree_node_class
+from vortex.drone2d import Drone2D, DroneState2D
+
+dx = 0.01  # meters per lattice unit
+u_real = 2.0  # m/s
+g_SI = -9.81  # m/s^2
+
+
+# u_lattice is the "reference velocity" for the physics. It defines the fluid's behavior (viscosity).
+u_lattice = 0.15  # lattice units per timestep (Fixed for LBM stability) 
+
+# Time scale
+dt = (u_lattice / u_real) * dx  # = 0.15/5 * 0.01 = 0.0003 s
+
+# Gravity conversion
+GRAVITY = g_SI * dt**2 / dx
+        #   = 9.81 * (0.0003)**2 / 0.01
+        #   = 9.81 * 0.000009
+        #   = 0.00008829
+
+###########################################
+####### --- Drone Configuration --- #######
+###########################################
+drone2d = Drone2D(gravity=GRAVITY) # Default configuration with correct gravity
+
 
 # --- Configuration ---
 # Thermal LBM Configuration
 Re_target = 1000.0  # High turbulence but achievable
-u_prop = 0.15 
-L_char = 80 
+L_char = drone2d.PROP_WIDTH # Characteristic length based on propeller width 
 
 # --- LBM Stability Constraint ---
 tau_min_stable = 0.5 # Reduced slightly as we want some instability/turbulence
-nu_required = (u_prop * L_char) / Re_target
+nu_required = (u_lattice * L_char) / Re_target
 tau_result = 3.0 * nu_required + 0.5
 
 if tau_result < tau_min_stable:
     print(f"WARNING: Calculated tau ({tau_result:.4f}) is unstable. Setting tau to {tau_min_stable:.4f}.")
     tau = tau_min_stable
     nu = (tau - 0.5) / 3.0
-    Re_effective = (u_prop * L_char) / nu
+    Re_effective = (u_lattice * L_char) / nu
 else:
     tau = tau_result
     nu = nu_required
@@ -44,7 +66,7 @@ print(f"Target Re: {Re_target}, Effective Re: {Re_effective:.2f}")
 print(f"nu: {nu:.6f}, tau: {tau:.4f}, omega: {omega:.4f}")
 
 # Grid parameters
-nx, ny = 600, 600
+nx, ny = 600, 800
 
 # Backend and Precision
 compute_backend = ComputeBackend.JAX
@@ -64,180 +86,10 @@ xlb.init(
 grid = grid_factory((nx, ny))
 grid, f_0, f_1, missing_mask, bc_mask = create_nse_fields(grid=grid)
 
-# --- Geometry Definition ---
-x_coords = jnp.arange(nx)
-y_coords = jnp.arange(ny)
-X, Y = jnp.meshgrid(x_coords, y_coords, indexing="ij")
-
-# --- DRONE PHYSICS & GEOMETRY ---
-
-@register_pytree_node_class
-class DroneState:
-    def __init__(self, pos, vel, angle, angular_vel):
-        self.pos = pos       # [x, y]
-        self.vel = vel       # [vx, vy]
-        self.angle = angle   # radians
-        self.angular_vel = angular_vel # radians/s
-
-    def tree_flatten(self):
-        return ((self.pos, self.vel, self.angle, self.angular_vel), None)
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        return cls(*children)
-
-# Drone Geometry Constants
-BODY_RADIUS_X = 30.0
-BODY_RADIUS_Y = 20.0
-ARM_LENGTH = 180.0
-ARM_THICKNESS = 10.0
-MOTOR_OFFSET = 90.0
-MOTOR_SIZE = 30.0
-PROP_WIDTH = 50.0
-PROP_OFFSET_Y = 10.0
-
-# Mass Properties
-DRONE_MASS = 2000.0 # 2 kg drone
-DRONE_INERTIA = 1_000_000.0  # High agility
-GRAVITY = -0.00005 
-
-def get_drone_markers(state):
-    """Generates Lagrangian markers for the drone surface based on state."""
-    cx, cy = state.pos[0], state.pos[1]
-    theta = state.angle
-    
-    # Rotation matrix
-    c, s = jnp.cos(theta), jnp.sin(theta)
-    rot = jnp.array([[c, -s], [s, c]])
-    
-    # 1. Body (Ellipse) - Discretized
-    num_body_pts = 100
-    t = jnp.linspace(0, 2*jnp.pi, num_body_pts, endpoint=False)
-    body_x = BODY_RADIUS_X * jnp.cos(t)
-    body_y = BODY_RADIUS_Y * jnp.sin(t)
-    body_pts = jnp.stack([body_x, body_y], axis=1)
-    
-    # 2. Arms (Rectangle)
-    # Simplified as a line of points for IBM
-    num_arm_pts = 60
-    arm_x = jnp.linspace(-ARM_LENGTH/2, ARM_LENGTH/2, num_arm_pts)
-    arm_y = jnp.zeros_like(arm_x)
-    arm_pts = jnp.stack([arm_x, arm_y], axis=1)
-    
-    # 3. Motors (Boxes)
-    # Left Motor
-    motor_pts_list = []
-    for offset in [-MOTOR_OFFSET, MOTOR_OFFSET]:
-        # Box around (offset, 5) size 30x30
-        mx = jnp.array([-15, 15, 15, -15, -15]) + offset
-        my = jnp.array([-15, -15, 15, 15, -15]) + 5 # +5 y offset
-        # Interpolate points along edges
-        for i in range(4):
-            p1 = jnp.array([mx[i], my[i]])
-            p2 = jnp.array([mx[i+1], my[i+1]])
-            num_edge = 10
-            alphas = jnp.linspace(0, 1, num_edge, endpoint=False)
-            edge_pts = p1[None, :] * (1 - alphas[:, None]) + p2[None, :] * alphas[:, None]
-            motor_pts_list.append(edge_pts)
-            
-    motor_pts = jnp.concatenate(motor_pts_list, axis=0)
-
-    # Combine all local points
-    all_local_pts = jnp.concatenate([body_pts, arm_pts, motor_pts], axis=0)
-    
-    # Rotate and Translate
-    # (N, 2) @ (2, 2) -> (N, 2)
-    rotated_pts = jnp.dot(all_local_pts, rot.T)
-    global_pts = rotated_pts + jnp.array([cx, cy])
-    
-    return global_pts
-
-# --- Control Options ---
-USE_SMART_CONTROLLER = False # Set to False for "Dumb" drone with noise
-
-def get_propeller_force_field(state, grid_shape, key):
-    """Computes the actuator disk force field for the propellers."""
-    cx, cy = state.pos[0], state.pos[1]
-    theta = state.angle
-    
-    # Propeller positions relative to center
-    # Left: (-90, 10), Right: (90, 10)
-    
-    # Base Thrust (reduced to enable descent)
-    base_thrust = 0.00008
-    
-    if USE_SMART_CONTROLLER:
-        # === SIMPLE PD CONTROLLER ===
-        # Keep it simple: Proportional + Derivative control
-        
-        # Roll Stabilization
-        target_angle = 0.0
-        kp = 0.5    # Proportional gain
-        kd = 5.0    # Derivative (damping) gain
-        
-        angle_error = target_angle - state.angle
-        omega_error = 0.0 - state.angular_vel
-        
-        roll_correction = kp * angle_error + kd * omega_error
-        
-        # Altitude Control
-        target_vy = -0.005
-        kp_y = 0.001
-        
-        vy_error = target_vy - state.vel[1]
-        thrust_correction = kp_y * vy_error
-        
-        # Motor mixing
-        thrust_left = base_thrust + thrust_correction - roll_correction
-        thrust_right = base_thrust + thrust_correction + roll_correction
-        
-        # Clamp thrust
-        max_thrust = 0.001
-        thrust_left = jnp.clip(thrust_left, 0.0, max_thrust)
-        thrust_right = jnp.clip(thrust_right, 0.0, max_thrust)
-        
-    else:
-        # --- DUMB DRONE (Random Noise) ---
-        k1, k2 = jax.random.split(key)
-        noise_left = jax.random.uniform(k1, minval=-0.1, maxval=0.1) 
-        noise_right = jax.random.uniform(k2, minval=-0.1, maxval=0.1) 
-        
-        thrust_left = base_thrust * (1.0 + noise_left)
-        thrust_right = base_thrust * (1.0 + noise_right)
-    
-    # Direction of thrust: Downward in body frame is (0, -1)
-    # Rotated: (-sin(theta), -cos(theta))
-    thrust_dir = jnp.array([-jnp.sin(theta), -jnp.cos(theta)])
-    
-    # Propeller Centers
-    c, s = jnp.cos(theta), jnp.sin(theta)
-    rot = jnp.array([[c, -s], [s, c]])
-    
-    p_left_local = jnp.array([-MOTOR_OFFSET, PROP_OFFSET_Y])
-    p_right_local = jnp.array([MOTOR_OFFSET, PROP_OFFSET_Y])
-    
-    p_left = jnp.dot(rot, p_left_local) + jnp.array([cx, cy])
-    p_right = jnp.dot(rot, p_right_local) + jnp.array([cx, cy])
-    
-    # Create a mask/kernel for the propellers on the grid
-    # Simple Gaussian blobs for force distribution
-    X, Y = jnp.meshgrid(jnp.arange(grid_shape[0]), jnp.arange(grid_shape[1]), indexing="ij")
-    
-    def gaussian_blob(x0, y0, sigma=10.0):
-        return jnp.exp(-((X - x0)**2 + (Y - y0)**2) / (2 * sigma**2))
-    
-    mask_left = gaussian_blob(p_left[0], p_left[1])
-    mask_right = gaussian_blob(p_right[0], p_right[1])
-    
-    fx = (mask_left * thrust_left + mask_right * thrust_right) * thrust_dir[0]
-    fy = (mask_left * thrust_left + mask_right * thrust_right) * thrust_dir[1]
-    
-    # Return total thrust forces for physics calc
-    # Sum of mask is approx 2*pi*sigma^2 ? No, sum of gaussian on grid.
-    # We can approximate the integral or just sum the grid.
-    # For physics, we need the total force vector.
-    
-    return fx, fy
+# # --- Geometry Definition ---
+# x_coords = jnp.arange(nx)
+# y_coords = jnp.arange(ny)
+# X, Y = jnp.meshgrid(x_coords, y_coords, indexing="ij")
 
 
 # --- IBM FUNCTIONS ---
@@ -334,7 +186,7 @@ def step(f_pre, f_post, bc_mask, missing_mask, drone_state, key):
     # --- IBM & PHYSICS START ---
     
     # A. Get Markers
-    markers = get_drone_markers(drone_state)
+    markers = drone2d.get_markers(drone_state)
     
     # B. Calculate Target Velocity at Markers (Rigid Body Kinematics)
     # v_target = v_cm + omega x r
@@ -361,7 +213,7 @@ def step(f_pre, f_post, bc_mask, missing_mask, drone_state, key):
     fx_ibm, fy_ibm = spread(ibm_force_markers, markers, (nx, ny))
     
     # F. Add Propeller Thrust (Actuator Disk) with Noise
-    fx_prop, fy_prop = get_propeller_force_field(drone_state, (nx, ny), key)
+    fx_prop, fy_prop = drone2d.get_propeller_force_field(drone_state, (nx, ny), key)
     
     # Total Fluid Force Field
     fx_total = fx_ibm + fx_prop
@@ -404,7 +256,7 @@ def step(f_pre, f_post, bc_mask, missing_mask, drone_state, key):
     thrust_y = -jnp.sum(fy_prop)
     
     # Gravity
-    f_gravity = jnp.array([0.0, DRONE_MASS * GRAVITY])
+    f_gravity = jnp.array([0.0, drone2d.DRONE_MASS * GRAVITY])
     
     # Total Force on Drone
     total_force = f_reaction + jnp.array([thrust_x, thrust_y]) + f_gravity
@@ -420,8 +272,8 @@ def step(f_pre, f_post, bc_mask, missing_mask, drone_state, key):
     
     # Update State (Euler Integration)
     # a = F/m
-    accel = total_force / DRONE_MASS
-    alpha = total_torque / DRONE_INERTIA
+    accel = total_force / drone2d.DRONE_MASS
+    alpha = total_torque / drone2d.DRONE_INERTIA
     
     new_vel = drone_state.vel + accel # dt=1
     new_pos = drone_state.pos + new_vel
@@ -448,7 +300,7 @@ def step(f_pre, f_post, bc_mask, missing_mask, drone_state, key):
     # Clamp Drone Velocity to prevent explosions
     new_vel = jnp.clip(new_vel, -0.5, 0.5)
     
-    new_drone_state = DroneState(new_pos, new_vel, new_angle, new_omega)
+    new_drone_state = DroneState2D(new_pos, new_vel, new_angle, new_omega)
     
     # --- IBM & PHYSICS END ---
 
@@ -480,9 +332,9 @@ f_1 = jnp.zeros_like(f_0)
 # Start high up
 start_pos = jnp.array([nx/2, ny - 150.0])
 start_vel = jnp.array([0.0, 0.0])
-drone_state = DroneState(start_pos, start_vel, 0.0, 0.0)
+drone_state = DroneState2D(start_pos, start_vel, 0.0, 0.0)
 
-num_steps = 50000 
+num_steps = 10000 
 save_interval = 50 # Save less frequently to save space
 
 print("Starting simulation...")

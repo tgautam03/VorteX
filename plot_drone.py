@@ -26,17 +26,32 @@ except FileNotFoundError:
     exit(1)
 
 # --- 1. Simulation & Geometry Parameters ---
-nx, ny = 600, 600
+nx, ny = 600, 800
 
-# Drone Geometry Constants (Must match simulation)
-BODY_RADIUS_X = 30.0
-BODY_RADIUS_Y = 20.0
-ARM_LENGTH = 180.0
-ARM_THICKNESS = 10.0
-MOTOR_OFFSET = 90.0
-MOTOR_SIZE = 30.0
-PROP_WIDTH = 50.0
-PROP_OFFSET_Y = 10.0
+# Create default drone to get geometry constants
+from vortex.drone2d import Drone2D
+dx = 0.01  # meters per lattice unit
+u_real = 5.0  # m/s
+g_SI = 9.81  # m/s^2
+
+
+# u_lattice is the "reference velocity" for the physics. It defines the fluid's behavior (viscosity).
+u_lattice = 0.15  # lattice units per timestep (Fixed for LBM stability) 
+
+# Time scale
+dt = (u_lattice / u_real) * dx  # = 0.15/5 * 0.01 = 0.0003 s
+
+# Gravity conversion
+GRAVITY = g_SI * dt**2 / dx
+_drone_ref = Drone2D(gravity=GRAVITY)
+BODY_RADIUS_X = _drone_ref.BODY_RADIUS_X
+BODY_RADIUS_Y = _drone_ref.BODY_RADIUS_Y
+ARM_LENGTH = _drone_ref.ARM_LENGTH
+ARM_THICKNESS = _drone_ref.ARM_THICKNESS
+MOTOR_OFFSET = _drone_ref.MOTOR_OFFSET
+MOTOR_SIZE = _drone_ref.MOTOR_SIZE
+PROP_WIDTH = _drone_ref.PROP_WIDTH
+PROP_OFFSET_Y = _drone_ref.PROP_OFFSET_Y
 
 # --- 2. Color Scale Clipping & Pre-computation ---
 print("Pre-computing velocity magnitudes and setting visualization scales...")
