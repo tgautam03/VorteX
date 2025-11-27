@@ -1,3 +1,9 @@
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.append(str(ROOT))
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -16,6 +22,11 @@ from xlb.operator.boundary_condition import (
 from xlb.operator.stream import Stream
 from xlb.operator.macroscopic import Macroscopic
 from xlb.helper.nse_solver import create_nse_fields
+
+# Folder where results should always go
+script_dir = Path(__file__).resolve().parent
+results_dir = script_dir / "npy_files"
+results_dir.mkdir(exist_ok=True)
 
 # --- Configuration ---
 # Physical parameters
@@ -209,9 +220,9 @@ saved_vorticity = np.array(saved_vorticity)
 print(f"\nSaved {len(saved_steps)} frames for visualization")
 
 # Save data to files for visualization
-np.save('saved_steps.npy', np.array(saved_steps))
-np.save('saved_rho.npy', saved_rho)
-np.save('saved_u.npy', saved_u)
-np.save('saved_vorticity.npy', saved_vorticity)
+np.save(results_dir / 'cylinder_saved_steps.npy', np.array(saved_steps))
+np.save(results_dir / 'cylinder_saved_rho.npy', saved_rho)
+np.save(results_dir / 'cylinder_saved_u.npy', saved_u)
+np.save(results_dir / 'cylinder_saved_vorticity.npy', saved_vorticity)
 print("Data saved to .npy files")
-print("\nRun 'python plot_flow.py' to visualize the results")
+print("\nRun 'python plot_cylinder.py' to visualize the results")

@@ -19,7 +19,7 @@ class DroneSimulation2D:
     Combines LBM fluid solver, Immersed Boundary Method, and drone physics.
     """
     
-    def __init__(self, environment, drone, initial_state, units, save_interval=50):
+    def __init__(self, environment, drone, initial_state, units, save_interval=50, hover=True):
         """
         Initialize the simulation.
         
@@ -29,12 +29,18 @@ class DroneSimulation2D:
             initial_state: DroneState2D instance
             units: UnitConverter instance
             save_interval: Save data every N steps
+            hover: Whether to hover the drone at a fixed height or let it land
         """
         self.env = environment
         self.drone = drone
         self.state = initial_state
         self.units = units
         self.save_interval = save_interval
+        self.hover = hover
+        if hover:
+            self.target_height = initial_state.pos[1]
+        else:
+            self.target_height = None
         
         # Storage for results
         self.saved_steps = []
@@ -52,11 +58,15 @@ class DroneSimulation2D:
         self.key = jax.random.PRNGKey(0)
     
     @staticmethod
-    def _step_jit(env, drone, f_pre, f_post, bc_mask, missing_mask, drone_state, key, nx, ny):
+    def _step_jit(env, drone, f_pre, f_post, bc_mask, missing_mask, drone_state, key, nx, ny, hover, target_height):
         """
         Single simulation step (JIT compiled).
         
         This is separated as a static method to allow JAX JIT compilation.
+        
+        Args:
+            hover: Whether to use hovering mode
+            target_height: Target altitude for hovering (if hover=True)
         """
         # 1. Macroscopic moments
         rho, u = env.macroscopic_op(f_pre)
@@ -87,7 +97,9 @@ class DroneSimulation2D:
         fx_ibm, fy_ibm = spread(ibm_force_markers, markers, (nx, ny))
         
         # F. Add propeller thrust (actuator disk)
-        fx_prop, fy_prop = drone.get_propeller_force_field(drone_state, (nx, ny), key)
+        fx_prop, fy_prop = drone.get_propeller_force_field(
+            drone_state, (nx, ny), key, hover=hover, target_height=target_height
+        )
         
         # Total fluid force field
         fx_total = fx_ibm + fx_prop
@@ -179,9 +191,12 @@ class DroneSimulation2D:
         start_time = time.time()
         
         # JIT compile the step function
+        hover = self.hover
+        target_height = self.target_height if self.hover else None
+        
         step = jax.jit(lambda f_pre, f_post, bc_mask, missing_mask, drone_state, key: 
                       self._step_jit(self.env, self.drone, f_pre, f_post, bc_mask, missing_mask,
-                                     drone_state, key, self.env.nx, self.env.ny))
+                                     drone_state, key, self.env.nx, self.env.ny, hover, target_height))
         
         for i in range(num_steps):
             self.key, subkey = jax.random.split(self.key)

@@ -11,15 +11,26 @@ from matplotlib.patches import Rectangle, Ellipse
 from matplotlib.widgets import Slider
 import matplotlib.transforms as transforms
 
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.append(str(ROOT))
+
+# Folder where results are
+script_dir = Path(__file__).resolve().parent
+results_dir = script_dir / "npy_files"
+results_dir.mkdir(exist_ok=True)
+
 # Load the saved data
 print("Loading simulation data...")
 try:
-    saved_steps = np.load('drone_steps.npy')
-    saved_rho = np.load('drone_rho.npy')
-    saved_u = np.load('drone_u.npy')
-    saved_vorticity = np.load('drone_vorticity.npy')
-    saved_drone_states = np.load('drone_states.npy') # [x, y, angle]
-    saved_forces = np.load('drone_forces.npy') # [Fx, Fy, Torque]
+    saved_steps = np.load(results_dir / 'drone_steps.npy')
+    saved_rho = np.load(results_dir / 'drone_rho.npy')
+    saved_u = np.load(results_dir / 'drone_u.npy')
+    saved_vorticity = np.load(results_dir / 'drone_vorticity.npy')
+    saved_drone_states = np.load(results_dir / 'drone_states.npy') # [x, y, angle]
+    saved_forces = np.load(results_dir / 'drone_forces.npy') # [Fx, Fy, Torque]
     print(f"Loaded {len(saved_steps)} frames")
 except FileNotFoundError:
     print("Error: Data files not found. Please run 2D_drone_flow.py first.")

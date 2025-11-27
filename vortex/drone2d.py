@@ -100,21 +100,38 @@ class Drone2D:
         
         return global_pts
 
-    def get_propeller_force_field(self, state, grid_shape, key):
-        """Computes the actuator disk force field for the propellers."""
+    def get_propeller_force_field(self, state, grid_shape, key, hover=False, target_height=None):
+        """
+        Computes the actuator disk force field for the propellers.
+        
+        Args:
+            state: DroneState2D instance
+            grid_shape: Tuple (nx, ny)
+            key: JAX random key
+            hover: If True, use clean thrust + altitude control. If False, use noisy thrust.
+            target_height: Target altitude for hovering (only used if hover=True)
+        """
         cx, cy = state.pos[0], state.pos[1]
         theta = state.angle
         
         # Base Thrust (calculated to hover)
         base_thrust = self.BASE_THRUST
         
-        # --- DUMB DRONE (Random Noise) ---
-        k1, k2 = jax.random.split(key)
-        noise_left = jax.random.uniform(k1, minval=-0.1, maxval=0.1) 
-        noise_right = jax.random.uniform(k2, minval=-0.1, maxval=0.1) 
-        
-        thrust_left = base_thrust * (1.0 + noise_left)
-        thrust_right = base_thrust * (1.0 + noise_right)
+        if hover and target_height is not None:
+            # --- HOVERING MODE (Altitude Control) ---
+            altitude_error = target_height - cy
+            thrust_adjustment = 1 * altitude_error  # Proportional control (tuned gain)
+            
+            thrust_left = base_thrust + thrust_adjustment/2
+            thrust_right = base_thrust + thrust_adjustment/2
+        else:
+            # --- LANDING MODE (Random Noise) ---
+            k1, k2 = jax.random.split(key)
+            noise_left = jax.random.uniform(k1, minval=-0.1, maxval=0.1) 
+            noise_right = jax.random.uniform(k2, minval=-0.1, maxval=0.1) 
+            
+            thrust_left = base_thrust * (1.0 + noise_left)
+            thrust_right = base_thrust * (1.0 + noise_right)
         
         # Direction of thrust: Downward in body frame is (0, -1)
         # Rotated: (-sin(theta), -cos(theta))

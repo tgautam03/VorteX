@@ -1,12 +1,17 @@
 import numpy as np
 
+from pathlib import Path
+
+MAIN_DIR = Path(__file__).resolve().parent.parent  # adjust .parent/.parents[...] as needed
+DATA_DIR = MAIN_DIR / "examples" / "npy_files"
+
 print("Checking data validity...")
 
 try:
-    rho = np.load('drone_rho.npy')
-    u = np.load('drone_u.npy')
-    states = np.load('drone_states.npy')
-    forces = np.load('drone_forces.npy')
+    rho = np.load(DATA_DIR / 'drone_rho.npy')
+    u = np.load(DATA_DIR / 'drone_u.npy')
+    states = np.load(DATA_DIR / 'drone_states.npy')
+    forces = np.load(DATA_DIR / 'drone_forces.npy')
 
     print(f"Rho shape: {rho.shape}")
     print(f"Rho min: {np.min(rho)}, Max: {np.max(rho)}")

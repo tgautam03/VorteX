@@ -10,13 +10,24 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from matplotlib.widgets import Slider
 
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.append(str(ROOT))
+
+# Folder where results are
+script_dir = Path(__file__).resolve().parent
+results_dir = script_dir / "npy_files"
+results_dir.mkdir(exist_ok=True)
+
 # Load the saved data
 print("Loading simulation data...")
 try:
-    saved_steps = np.load('saved_steps.npy')
-    saved_rho = np.load('saved_rho.npy')
-    saved_u = np.load('saved_u.npy')
-    saved_vorticity = np.load('saved_vorticity.npy')
+    saved_steps = np.load(results_dir / 'cylinder_saved_steps.npy')
+    saved_rho = np.load(results_dir / 'cylinder_saved_rho.npy')
+    saved_u = np.load(results_dir / 'cylinder_saved_u.npy')
+    saved_vorticity = np.load(results_dir / 'cylinder_saved_vorticity.npy')
     print(f"Loaded {len(saved_steps)} frames")
 except FileNotFoundError:
     print("Error: Data files not found. Please run 2D_cylinder_flow.py first.")
