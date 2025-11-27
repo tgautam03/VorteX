@@ -7,8 +7,9 @@ Usage: python plot_drone.py
 
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle, Ellipse # Import Ellipse for the body
+from matplotlib.patches import Rectangle, Ellipse
 from matplotlib.widgets import Slider
+import matplotlib.transforms as transforms
 
 # Load the saved data
 print("Loading simulation data...")
@@ -17,6 +18,8 @@ try:
     saved_rho = np.load('drone_rho.npy')
     saved_u = np.load('drone_u.npy')
     saved_vorticity = np.load('drone_vorticity.npy')
+    saved_drone_states = np.load('drone_states.npy') # [x, y, angle]
+    saved_forces = np.load('drone_forces.npy') # [Fx, Fy, Torque]
     print(f"Loaded {len(saved_steps)} frames")
 except FileNotFoundError:
     print("Error: Data files not found. Please run 2D_drone_flow.py first.")
@@ -25,36 +28,15 @@ except FileNotFoundError:
 # --- 1. Simulation & Geometry Parameters ---
 nx, ny = 600, 600
 
-# Geometry parameters (must match the simulation script)
-drone_cx, drone_cy = nx // 2, ny - 150 
-
-# Drone Body (Ellipse)
-body_radius_x, body_radius_y = 30, 20
-
-# Drone Arms (Rectangles)
-arm_half_length = 180 // 2
-arm_half_width = 10 // 2
-# Note: The original mask_arms was (jnp.abs(X - drone_cx) < 180 // 2) & (jnp.abs(Y - drone_cy) < 10 // 2)
-# This creates a single horizontal rectangle.
-arm_x_start = drone_cx - arm_half_length
-arm_y_start = drone_cy - arm_half_width
-arm_width = 2 * arm_half_length
-arm_height = 2 * arm_half_width
-
-
-# Motor Housings (Rectangles)
-motor_offset = 90
-motor_half_size = 15 # Original mask was < 15, so total size 30
-motor_y_offset = 5 # Original mask was (Y - (drone_cy + 5))
-motor_x_size = 2 * motor_half_size
-motor_y_size = 2 * motor_half_size
-motor_housing_y_center = drone_cy + motor_y_offset
-
-
-# Propellers (Actuator Disks) - for drawing
-prop_y = drone_cy - 10
-prop_width = 50 
-
+# Drone Geometry Constants (Must match simulation)
+BODY_RADIUS_X = 30.0
+BODY_RADIUS_Y = 20.0
+ARM_LENGTH = 180.0
+ARM_THICKNESS = 10.0
+MOTOR_OFFSET = 90.0
+MOTOR_SIZE = 30.0
+PROP_WIDTH = 50.0
+PROP_OFFSET_Y = 10.0
 
 # --- 2. Color Scale Clipping & Pre-computation ---
 print("Pre-computing velocity magnitudes and setting visualization scales...")
@@ -77,65 +59,75 @@ vort_min, vort_max = -VORT_MAX, VORT_MAX
 print("Setting up visualization...")
 
 # Create figure with subplots
-fig = plt.figure(figsize=(16, 9))
-gs = fig.add_gridspec(3, 2, height_ratios=[1, 1, 0.05], hspace=0.3, wspace=0.3)
+# Layout: 3 rows. Top 2 for fields, Bottom 1 for Forces/Torque
+fig = plt.figure(figsize=(16, 12))
+gs = fig.add_gridspec(4, 2, height_ratios=[1, 1, 0.6, 0.05], hspace=0.4, wspace=0.3)
 
 ax1 = fig.add_subplot(gs[0, 0])
 ax2 = fig.add_subplot(gs[0, 1])
 ax3 = fig.add_subplot(gs[1, 0])
 ax4 = fig.add_subplot(gs[1, 1])
-ax_slider = fig.add_subplot(gs[2, :])
 
-# Helper function to draw the drone footprint
-def draw_drone_geometry(ax): # Renamed function
-    """Draws the drone body, arms, motors, and propellers."""
+# Force Plots
+ax_force = fig.add_subplot(gs[2, 0])
+ax_torque = fig.add_subplot(gs[2, 1])
+
+ax_slider = fig.add_subplot(gs[3, :])
+
+# Storage for patches to update them later
+drone_patches = {
+    'ax1': [], 'ax2': [], 'ax3': [], 'ax4': []
+}
+
+def create_drone_patches(ax, key):
+    """Creates the drone patches and adds them to the axes."""
+    patches = []
     
-    # 1. Drone Body (Ellipse)
-    body_ellipse = Ellipse(
-        (drone_cx, drone_cy), 
-        width=2 * body_radius_x, 
-        height=2 * body_radius_y, 
-        color='grey', alpha=0.8, zorder=11
-    )
-    ax.add_patch(body_ellipse)
+    # 1. Body (Ellipse)
+    body = Ellipse((0, 0), width=2*BODY_RADIUS_X, height=2*BODY_RADIUS_Y, color='grey', alpha=0.8, zorder=11)
+    ax.add_patch(body)
+    patches.append(body)
+    
+    # 2. Arms (Rectangle)
+    # Centered at (0,0) initially
+    arm = Rectangle((-ARM_LENGTH/2, -ARM_THICKNESS/2), ARM_LENGTH, ARM_THICKNESS, color='darkgrey', alpha=0.8, zorder=11)
+    ax.add_patch(arm)
+    patches.append(arm)
+    
+    # 3. Motors (Rectangles)
+    # Left
+    m_left = Rectangle((-MOTOR_OFFSET - 15, -15 + 5), 30, 30, color='black', alpha=0.9, zorder=12)
+    ax.add_patch(m_left)
+    patches.append(m_left)
+    
+    # Right
+    m_right = Rectangle((MOTOR_OFFSET - 15, -15 + 5), 30, 30, color='black', alpha=0.9, zorder=12)
+    ax.add_patch(m_right)
+    patches.append(m_right)
+    
+    # 4. Propellers (Red Rectangles)
+    # Left
+    p_left = Rectangle((-MOTOR_OFFSET - PROP_WIDTH/2, PROP_OFFSET_Y - 1.5), PROP_WIDTH, 3, color='red', alpha=0.6, zorder=13)
+    ax.add_patch(p_left)
+    patches.append(p_left)
+    
+    # Right
+    p_right = Rectangle((MOTOR_OFFSET - PROP_WIDTH/2, PROP_OFFSET_Y - 1.5), PROP_WIDTH, 3, color='red', alpha=0.6, zorder=13)
+    ax.add_patch(p_right)
+    patches.append(p_right)
+    
+    drone_patches[key] = patches
 
-    # 2. Drone Arms (Single horizontal rectangle)
-    arm_rect = Rectangle(
-        (arm_x_start, arm_y_start), 
-        arm_width, arm_height, 
-        color='darkgrey', alpha=0.8, zorder=11
-    )
-    ax.add_patch(arm_rect)
-
-    # 3. Motor Housings (Rectangles)
-    # Left Motor Housing
-    motor_left = Rectangle(
-        (drone_cx - motor_offset - motor_half_size, motor_housing_y_center - motor_half_size), 
-        motor_x_size, motor_y_size, 
-        color='black', alpha=0.9, zorder=12
-    )
-    ax.add_patch(motor_left)
-    # Right Motor Housing
-    motor_right = Rectangle(
-        (drone_cx + motor_offset - motor_half_size, motor_housing_y_center - motor_half_size), 
-        motor_x_size, motor_y_size, 
-        color='black', alpha=0.9, zorder=12
-    )
-    ax.add_patch(motor_right)
-
-    # 4. Propellers (Actuator Disks - Red Rectangles)
-    # Left Propeller location
-    rect_left_prop = Rectangle(
-        (drone_cx - motor_offset - prop_width / 2, prop_y - 1.5), 
-        prop_width, 3, color='red', alpha=0.6, zorder=13
-    )
-    ax.add_patch(rect_left_prop)
-    # Right Propeller location
-    rect_right_prop = Rectangle(
-        (drone_cx + motor_offset - prop_width / 2, prop_y - 1.5), 
-        prop_width, 3, color='red', alpha=0.6, zorder=13
-    )
-    ax.add_patch(rect_right_prop)
+def update_drone_patches(key, x, y, angle_rad):
+    """Updates the position and rotation of the drone patches."""
+    patches = drone_patches[key]
+    
+    # Create transform: Rotate then Translate
+    tr = transforms.Affine2D().rotate(angle_rad).translate(x, y)
+    
+    for p in patches:
+        # We need to apply the data transform so it maps to plot coordinates
+        p.set_transform(tr + p.axes.transData)
 
 # Initialize with first frame
 frame_idx = 0
@@ -150,7 +142,7 @@ im1 = ax1.imshow(
     vmax=u_mag_max,
     aspect='equal'
 )
-draw_drone_geometry(ax1) # Call the new function
+create_drone_patches(ax1, 'ax1')
 ax1.set_title(r'Velocity Magnitude $|u|$')
 ax1.set_xlabel('X')
 ax1.set_ylabel('Y')
@@ -166,7 +158,7 @@ im2 = ax2.imshow(
     vmax=vort_max, 
     aspect='equal'
 )
-draw_drone_geometry(ax2) # Call the new function
+create_drone_patches(ax2, 'ax2')
 ax2.set_title(r'Vorticity ($\omega$)')
 ax2.set_xlabel('X')
 ax2.set_ylabel('Y')
@@ -182,7 +174,7 @@ im3 = ax3.imshow(
     vmax=rho_max,
     aspect='equal'
 )
-draw_drone_geometry(ax3) # Call the new function
+create_drone_patches(ax3, 'ax3')
 ax3.set_title(r'Density ($\rho$)')
 ax3.set_xlabel('X')
 ax3.set_ylabel('Y')
@@ -198,21 +190,41 @@ im4 = ax4.imshow(
     vmax=ux_max,
     aspect='equal'
 )
-draw_drone_geometry(ax4) # Call the new function
+create_drone_patches(ax4, 'ax4')
 ax4.set_title(r'Y-Velocity Component ($u_y$)')
 ax4.set_xlabel('X')
 ax4.set_ylabel('Y')
 cbar4 = plt.colorbar(im4, ax=ax4, label=r'$u_y$')
 
-# Set viewport to focus on the drone wake
-VIEW_HEIGHT = 350
-for ax in [ax1, ax2, ax3, ax4]:
-    ax.set_ylim(drone_cy - VIEW_HEIGHT, ny)
-    ax.set_xlim(drone_cx - 250, drone_cx + 250)
+# --- Force Plots ---
+steps = np.arange(len(saved_steps))
+# Forces
+ax_force.plot(steps, saved_forces[:, 0], label='Fx (Drag)', color='blue', alpha=0.7)
+ax_force.plot(steps, saved_forces[:, 1], label='Fy (Lift)', color='green', alpha=0.7)
+ax_force.set_title('Aerodynamic Forces')
+ax_force.set_xlabel('Frame')
+ax_force.set_ylabel('Force')
+ax_force.legend()
+ax_force.grid(True, alpha=0.3)
+line_force = ax_force.axvline(x=0, color='red', linestyle='--')
 
+# Torque
+ax_torque.plot(steps, saved_forces[:, 2], label='Torque', color='orange', alpha=0.7)
+ax_torque.set_title('Aerodynamic Torque')
+ax_torque.set_xlabel('Frame')
+ax_torque.set_ylabel('Torque')
+ax_torque.legend()
+ax_torque.grid(True, alpha=0.3)
+line_torque = ax_torque.axvline(x=0, color='red', linestyle='--')
+
+
+# Initial update
+state = saved_drone_states[0]
+for key, ax in zip(['ax1', 'ax2', 'ax3', 'ax4'], [ax1, ax2, ax3, ax4]):
+    update_drone_patches(key, state[0], state[1], state[2])
 
 title = fig.suptitle(
-    f'2D Drone Flow (Actuator Disk) - Step {saved_steps[frame_idx]}',
+    f'2D Drone Flow (IBM + Physics) - Step {saved_steps[frame_idx]}',
     fontsize=16,
     fontweight='bold'
 )
@@ -242,7 +254,16 @@ def update(val):
     im2.set_data(vort.T)
     cbar2.update_normal(im2)   
 
-    title.set_text(f'2D Drone Flow (Actuator Disk) - Step {saved_steps[frame_idx]}')
+    title.set_text(f'2D Drone Flow (IBM + Physics) - Step {saved_steps[frame_idx]}')
+    
+    # Update Drone Position
+    state = saved_drone_states[frame_idx]
+    for key in ['ax1', 'ax2', 'ax3', 'ax4']:
+        update_drone_patches(key, state[0], state[1], state[2])
+        
+    # Update Force Lines
+    line_force.set_xdata([frame_idx])
+    line_torque.set_xdata([frame_idx])
 
     fig.canvas.draw_idle()
 
