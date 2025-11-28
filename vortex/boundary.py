@@ -2,7 +2,7 @@ import jax.numpy as jnp
 from jax import jit
 import jax.lax as lax
 from functools import partial
-from typing import Tuple
+from typing import Tuple, Union
 
 from xlb.operator import Operator
 from xlb.operator.boundary_condition.boundary_condition import (
@@ -25,7 +25,7 @@ class ConvectiveOutflowBC(BoundaryCondition):
 
     def __init__(
         self,
-        direction: Tuple[int, int],
+        direction: Union[Tuple[int, int], Tuple[int, int, int]],
         u_conv: float,
         velocity_set: VelocitySet = None,
         precision_policy: PrecisionPolicy = None,
@@ -36,8 +36,9 @@ class ConvectiveOutflowBC(BoundaryCondition):
         """
         Args:
             u_conv: Convective velocity (usually u_lattice).
-            direction: Normal vector pointing INTO the domain (dx, dy).
-                       Example: Right boundary -> (-1, 0)
+            direction: Normal vector pointing INTO the domain.
+                       2D Example: Right boundary -> (-1, 0)
+                       3D Example: Right boundary -> (-1, 0, 0)
         """
         super().__init__(
             ImplementationStep.STREAMING,
@@ -56,14 +57,19 @@ class ConvectiveOutflowBC(BoundaryCondition):
         # 1. Identify boundary nodes
         boundary = bc_mask == self.id
         
-        # Broadcast boundary mask to (q, nx, ny)
+        # Broadcast boundary mask to (q, nx, ny) for 2D or (q, nx, ny, nz) for 3D
         new_shape = (self.velocity_set.q,) + boundary.shape[1:]
         boundary = lax.broadcast_in_dim(boundary, new_shape, tuple(range(self.velocity_set.d + 1)))
         
         # 2. Get Neighbor values (f_neighbor at t+1, which is f_post in this context)
-        # Shift to grab interior neighbor. For Right BC (-1, 0), neighbor is at x-1.
+        # Shift to grab interior neighbor.
+        # 2D: For Right BC (-1, 0), neighbor is at x-1
+        # 3D: For Right BC (-1, 0, 0), neighbor is at x-1
         shift = tuple(-d for d in self.direction)
-        f_neighbor = jnp.roll(f_post, shift, axis=(1, 2))
+        # Determine axes to roll: (1, 2) for 2D, (1, 2, 3) for 3D
+        # velocity_set.d gives dimension. Axes are 1 to d.
+        axes = tuple(range(1, self.velocity_set.d + 1))
+        f_neighbor = jnp.roll(f_post, shift, axis=axes)
         
         # 3. Get Previous Boundary values (f_pre at t)
         # f_pre contains the distribution functions from the START of the step
@@ -77,66 +83,3 @@ class ConvectiveOutflowBC(BoundaryCondition):
         
         # 5. Select: Apply CBC at boundary, keep original f_post elsewhere
         return jnp.where(boundary, f_convective, f_post)
-
-
-class OpenBoundary(BoundaryCondition):
-    """
-    Open boundary condition (Zero Gradient / Neumann).
-    
-    Copies distribution functions from the immediate interior neighbor 
-    to the boundary node, allowing flow to exit freely.
-    """
-
-    def __init__(
-        self,
-        direction: Tuple[int, int],
-        velocity_set: VelocitySet = None,
-        precision_policy: PrecisionPolicy = None,
-        compute_backend: ComputeBackend = None,
-        indices=None,
-        mesh_vertices=None,
-    ):
-        """
-        Initialize OpenBoundary.
-        
-        Args:
-            direction: Normal vector pointing INTO the domain (dx, dy).
-                       Examples:
-                       Left boundary: (1, 0)
-                       Right boundary: (-1, 0)
-                       Top boundary: (0, -1)
-                       Bottom boundary: (0, 1)
-        """
-        super().__init__(
-            ImplementationStep.STREAMING,
-            velocity_set,
-            precision_policy,
-            compute_backend,
-            indices,
-            mesh_vertices,
-        )
-        self.direction = direction
-
-    @Operator.register_backend(ComputeBackend.JAX)
-    @partial(jit, static_argnums=(0))
-    def jax_implementation(self, f_pre, f_post, bc_mask, missing_mask):
-        # Identify boundary nodes for this BC ID
-        boundary = bc_mask == self.id
-        
-        # Broadcast boundary mask to match f shape (q, nx, ny)
-        # grid is (1, nx, ny) usually, but f is (q, nx, ny)
-        # bc_mask is (1, nx, ny)
-        new_shape = (self.velocity_set.q,) + boundary.shape[1:]
-        boundary = lax.broadcast_in_dim(boundary, new_shape, tuple(range(self.velocity_set.d + 1)))
-        
-        # Calculate shift to get neighbor values
-        # We want to roll the grid such that the neighbor comes to the boundary position.
-        # If direction is (1, 0) [Left], neighbor is at x+1. We need to shift by -1 along x.
-        shift = tuple(-d for d in self.direction)
-        
-        # Roll f_post to bring neighbor values to boundary
-        # axis=(1, 2) for (nx, ny) dimensions
-        f_neighbor = jnp.roll(f_post, shift, axis=(1, 2))
-        
-        # Apply Zero Gradient: f_boundary = f_neighbor
-        return jnp.where(boundary, f_neighbor, f_post)

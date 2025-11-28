@@ -11,15 +11,14 @@ import numpy as np
 from xlb.velocity_set.d2q9 import D2Q9 
 from xlb.grid import grid_factory
 from xlb.helper.nse_solver import create_nse_fields
-from xlb.operator.boundary_condition import EquilibriumBC, FullwayBounceBackBC, ZouHeBC
+from xlb.operator.boundary_condition import FullwayBounceBackBC
 from xlb.operator.equilibrium.quadratic_equilibrium import QuadraticEquilibrium
 from xlb.operator.collision.kbc import KBC
-from xlb.operator.collision.bgk import BGK 
 from xlb.operator.stream import Stream
 from xlb.operator.macroscopic import Macroscopic
 
-from vortex.obstacles import cylinder
-from vortex.boundary import OpenBoundary, ConvectiveOutflowBC
+from vortex.obstacles import circle
+from vortex.boundary import ConvectiveOutflowBC
 
 def main():
     #########################################
@@ -72,7 +71,7 @@ def main():
     grid, f_0, f_1, obstacle_mask, bc_mask = create_nse_fields(grid=grid)
 
     # Get obstacle mask
-    cylinder_mask = cylinder(NX, NY, cylinder_radius, loc)
+    cylinder_mask = circle(NX, NY, cylinder_radius, loc)
     obstacle_mask = obstacle_mask.at[:, cylinder_mask].set(True) # Assign cylinder mask to obstacle mask
 
     ########################################
