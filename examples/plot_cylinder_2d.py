@@ -36,7 +36,7 @@ except FileNotFoundError:
 # Simulation parameters
 NX, NY = 800, 200
 cylinder_radius = 10
-loc = (NX//8, NY//2)
+loc = (NX//4, NY//2)
 
 # Pre-compute velocity magnitude for all frames
 print("Pre-computing velocity magnitudes...")

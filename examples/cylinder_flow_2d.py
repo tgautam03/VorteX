@@ -34,17 +34,17 @@ def main():
     ############################################
     NX, NY = 800, 200                           # number of points in x and y (units: lattice_units)
     DS = 0.01                                    # Equal grid spacing in x and y (units: meters)
-    u_lattice = 0.1                            # Lattice velocity for LBM stability (units: lattice_units/s)
+    u_lattice = 0.05                            # Lattice velocity for LBM stability (units: lattice_units/s)
     u_real = 5                                  # Means: u_lattice cooresponds to u_real (units: m/s)
     dt = (u_lattice / u_real) * DS              # Time spacing (units: seconds)
     t = 10                                       # How long should the simulation run (units: seconds)
     NT = int(t / dt)                            # Number of time steps to run simulation for t seconds
     cylinder_radius = 10                        # Radius of the cylinder obstacle (units: lattice_units)
-    loc = (NX//8, NY//2)                        # Location of cylinder
+    loc = (NX//4, NY//2)                        # Location of cylinder
 
     print(f"(NX, NY): ({NX},{NY}), DS: {DS}, dt: {dt}, NT: {NT}")
 
-    Re = 200000                                   # Turbulence: Low (Re < 100), Medium (100 < Re < 1000), High (Re > 1000)
+    Re = 2000                                   # Turbulence: Low (Re < 100), Medium (100 < Re < 1000), High (Re > 1000)
     nu = u_lattice * (2*cylinder_radius) / Re   # Fluid Kinematic Viscosity (units: m^2/s) 
     tau = 3 * nu + 0.5                          # Relaxation tau
     assert tau > 0.5, f"tau: {tau}"             # For stability (pushing it at 0.5, ideally would want atleast 0.7)
@@ -75,37 +75,35 @@ def main():
     cylinder_mask = cylinder(NX, NY, cylinder_radius, loc)
     obstacle_mask = obstacle_mask.at[:, cylinder_mask].set(True) # Assign cylinder mask to obstacle mask
 
-    # Define boundary conditions
-    # left_inlet_bc = EquilibriumBC(rho=1, u=(u_lattice, 0))                      # Inflow from left
-    # LEFT_BC_ID = left_inlet_bc.id
-
+    ########################################
+    # Define and apply boundary conditions #
+    ########################################
+    # Outflow from right
     right_indices = [(0, NX - 1, y) for y in range(NY)]
-    # right_outlet_bc = OpenBoundary(direction=(-1, 0), indices=right_indices)    # Outflow from right
-    right_outlet_bc = ConvectiveOutflowBC(direction=(-1, 0), u_conv=u_lattice, indices=right_indices)    # Outflow from right
+    right_outlet_bc = ConvectiveOutflowBC(direction=(-1, 0), u_conv=u_lattice, indices=right_indices)       
     RIGHT_BC_ID = right_outlet_bc.id
 
+    # Outflow from top
     top_indices = [(0, x, NY-1) for x in range(NX)]
-    # top_outlet_bc = OpenBoundary(direction=(0, -1), indices=top_indices)        # Outflow from top
-    top_outlet_bc = ConvectiveOutflowBC(direction=(0, -1), u_conv=u_lattice, indices=top_indices)
+    top_outlet_bc = ConvectiveOutflowBC(direction=(0, -1), u_conv=u_lattice, indices=top_indices)           
     TOP_BC_ID = top_outlet_bc.id
 
+    # Outflow from bottom
     bottom_indices = [(0, x, 0) for x in range(NX)]
-    # bottom_outlet_bc = OpenBoundary(direction=(0, 1), indices=bottom_indices)   # Outflow from bottom
-    bottom_outlet_bc = ConvectiveOutflowBC(direction=(0, 1), u_conv=u_lattice, indices=bottom_indices)
+    bottom_outlet_bc = ConvectiveOutflowBC(direction=(0, 1), u_conv=u_lattice, indices=bottom_indices)     
     BOTTOM_BC_ID = bottom_outlet_bc.id
 
-    cylinder_bc = FullwayBounceBackBC()                                         # Cylinder is fixed obstacle
+    # Cylinder is fixed obstacle
+    cylinder_bc = FullwayBounceBackBC()                                         
     CYLINDER_BC_ID = cylinder_bc.id
 
     # Apply boundary conditions to the bc_mask
-    # bc_mask = bc_mask.at[0,0,:].set(LEFT_BC_ID)
     bc_mask = bc_mask.at[0,-1,:].set(RIGHT_BC_ID)
     bc_mask = bc_mask.at[0,:,-1].set(TOP_BC_ID)
     bc_mask = bc_mask.at[0,:,0].set(BOTTOM_BC_ID)
     bc_mask = bc_mask.at[0, cylinder_mask].set(CYLINDER_BC_ID)
 
     # List of all the boundary conditions
-    # bcs = [left_inlet_bc, right_outlet_bc, top_outlet_bc, bottom_outlet_bc, cylinder_bc]
     bcs = [right_outlet_bc, top_outlet_bc, bottom_outlet_bc, cylinder_bc]
 
     #############################################
