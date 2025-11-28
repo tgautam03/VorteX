@@ -118,10 +118,10 @@ class Drone2D:
         # Base Thrust (calculated to hover)
         base_thrust = self.BASE_THRUST
 
-        # Random noise for landing or hovering
+        # Random noise for hover mode (very small to prevent wobbles)
         k1, k2 = jax.random.split(key)
-        noise_left = jax.random.uniform(k1, minval=-0.1, maxval=0.1) 
-        noise_right = jax.random.uniform(k2, minval=-0.1, maxval=0.1) 
+        noise_left = jax.random.uniform(k1, minval=-0.01, maxval=0.01)*0  # Reduced from ±0.1 to ±0.01
+        noise_right = jax.random.uniform(k2, minval=-0.01, maxval=0.01)*0 
         
         if hover and target_height is not None:
             # --- HOVERING MODE (PD Control) ---
@@ -130,16 +130,30 @@ class Drone2D:
             altitude_error = target_height - cy
             alt_gain = 1.0
             thrust_adj_vertical = alt_gain * altitude_error
+
+            # 2. Horizontal Position Control (Cascade to Angle)
+            target_x = grid_shape[0] / 2.0
             
-            # 2. Angle Stabilization (PD Controller)
-            target_angle = 0.0
+            x_error = target_x - cx
+            vx = state.vel[0]
+            
+            # PID gains for position → angle (STRENGTHENED)
+            kp_pos = 0.15  # Was 0.02 (7.5x stronger position hold)
+            kd_pos = 0.5   # Was 0.1 (5x stronger damping)
+            
+            # Calculate target angle to correct position
+            target_angle = -(kp_pos * x_error - kd_pos * vx)
+            
+            # Clamp target angle (REDUCED to prevent saturation)
+            target_angle = jnp.clip(target_angle, -jnp.pi/12, jnp.pi/12) # +/- ~15 degrees
+            
+            # 3. Angle Stabilization (PD Controller)
             angle_error = target_angle - theta
             
-            # --- TUNING FIX: Reduced Proportional (kp) gain significantly ---
-            # kp = 0.5 was too high. Trying a much smaller value.
-            # kd = 0.3 was probably okay, but we'll try a slightly lower, more conservative value.
-            kp = 0.08   # Proportional gain (reduced from 0.5)
-            kd = 0.2    # Derivative gain (Dampens the spin)
+            # --- STRENGTHENED PID FOR HOVER STABILITY ---
+            # Increased from (kp=0.1, kd=0.2) to suppress wobbles
+            kp = 0.8    # Proportional gain (strong for hover)
+            kd = 3.0    # Derivative gain (damps oscillations)
             
             # PD Control equation
             thrust_adj_angle = (kp * angle_error) - (kd * angular_vel)

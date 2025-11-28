@@ -11,11 +11,13 @@ from xlb.velocity_set.d2q9 import D2Q9
 from xlb.grid import grid_factory
 from xlb.operator.collision.kbc import KBC
 from xlb.operator.equilibrium.quadratic_equilibrium import QuadraticEquilibrium
-from xlb.operator.boundary_condition import ZouHeBC, FullwayBounceBackBC
+from xlb.operator.boundary_condition import ExtrapolationOutflowBC, FullwayBounceBackBC, EquilibriumBC
 from xlb.operator.stream import Stream
 from xlb.operator.macroscopic import Macroscopic
 from xlb.helper.nse_solver import create_nse_fields
 
+
+from vortex.boundary import OpenBoundary
 
 class Environment2D:
     """
@@ -88,25 +90,60 @@ class Environment2D:
         self.rho_ambient = 1.0
     
     def setup_boundaries(self):
-        """
-        Set up boundary conditions: ground (bottom) and open (top, left, right).
-        """
+        ny, nx = self.ny, self.nx
+
+        # Create BC objects and IDs (as before)
         self.bc_ground = FullwayBounceBackBC()
-        self.bc_open = ZouHeBC(bc_type="pressure", prescribed_values=self.rho_ambient)
-        
         ID_GROUND = self.bc_ground.id
-        ID_OPEN = self.bc_open.id
-        
-        # Apply masks
-        self.bc_mask = self.bc_mask.at[0, :, 0].set(ID_GROUND)  # Bottom
-        self.bc_mask = self.bc_mask.at[0, :, -1].set(ID_OPEN)  # Top
-        self.bc_mask = self.bc_mask.at[0, 0, :].set(ID_OPEN)   # Left
-        self.bc_mask = self.bc_mask.at[0, -1, :].set(ID_OPEN)  # Right
-        
-        self.bcs = [self.bc_ground, self.bc_open]
-        
+
+        # Correct indices for (x, y) layout: (0, x, y)
+        # Left: x=0
+        left_indices  = [(0, 0, y) for y in range(ny)]
+        # Right: x=nx-1
+        right_indices = [(0, nx - 1, y) for y in range(ny)]
+        # Top: y=ny-1
+        top_indices   = [(0, x, ny - 1) for x in range(nx)]
+
+        # Left: Normal points RIGHT (1, 0)
+        self.bc_open_left = OpenBoundary(direction=(1, 0), indices=left_indices)
+        ID_OPEN_LEFT = self.bc_open_left.id
+
+        # Right: Normal points LEFT (-1, 0)
+        self.bc_open_right = OpenBoundary(direction=(-1, 0), indices=right_indices)
+        ID_OPEN_RIGHT = self.bc_open_right.id
+
+        # Top: Normal points DOWN (0, -1)
+        self.bc_open_top = OpenBoundary(direction=(0, -1), indices=top_indices)
+        ID_OPEN_TOP = self.bc_open_top.id
+
+        # Start from “all interior” mask (whatever your default is),
+        # then set boundaries carefully:
+
+        # 1) Bottom: ground wall (y=0)
+        self.bc_mask = self.bc_mask.at[0, :, 0].set(ID_GROUND)
+
+        # 2) Left: open (x=0)
+        self.bc_mask = self.bc_mask.at[0, 0, :].set(ID_OPEN_LEFT)
+
+        # 3) Right: open (x=nx-1)
+        self.bc_mask = self.bc_mask.at[0, nx - 1, :].set(ID_OPEN_RIGHT)
+
+        # 4) Top: open (y=ny-1)
+        self.bc_mask = self.bc_mask.at[0, :, ny - 1].set(ID_OPEN_TOP)
+
+        self.bcs = [
+            self.bc_ground,
+            self.bc_open_left,
+            self.bc_open_right,
+            self.bc_open_top,
+        ]
+
         print(f"registered bc {self.bc_ground.__class__.__name__}_{id(self.bc_ground)} with id {ID_GROUND}")
-        print(f"registered bc {self.bc_open.__class__.__name__}_{id(self.bc_open)} with id {ID_OPEN}")
+        print(f"registered bc {self.bc_open_left.__class__.__name__}_{id(self.bc_open_left)} with id {ID_OPEN_LEFT}")
+        print(f"registered bc {self.bc_open_right.__class__.__name__}_{id(self.bc_open_right)} with id {ID_OPEN_RIGHT}")
+        print(f"registered bc {self.bc_open_top.__class__.__name__}_{id(self.bc_open_top)} with id {ID_OPEN_TOP}")
+
+
     
     def calculate_lbm_parameters(self, Re_target: float, L_char: float, u_char: float, 
                                    tau_min_stable: float = 0.5):

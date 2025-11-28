@@ -159,6 +159,13 @@ class DroneSimulation2D:
         # Clamp drone velocity
         new_vel = jnp.clip(new_vel, -0.5, 0.5)
         
+        # ANGLE SATURATION (Safety mechanism to prevent flip)
+        # If angle gets too large, thrust points sideways and accelerates the flip
+        max_angle = jnp.pi / 4  # ~45 degrees max tilt
+        max_omega = 0.5  # Limit rotation rate
+        new_angle = jnp.clip(new_angle, -max_angle, max_angle)
+        new_omega = jnp.clip(new_omega, -max_omega, max_omega)
+        
         from vortex.drone2d import DroneState2D
         new_drone_state = DroneState2D(new_pos, new_vel, new_angle, new_omega)
         

@@ -25,7 +25,7 @@ def main():
     results_dir.mkdir(exist_ok=True)
     
     # ===== 1. SETUP UNITS =====
-    dx = 0.01  # meters per lattice unit
+    dx = 0.005  # meters per lattice unit
     u_real = 5  # m/s (expected downwash velocity)
     u_lattice = 0.15  # lattice units per timestep (for LBM stability)
     
@@ -40,7 +40,7 @@ def main():
     drone = Drone2D(gravity=gravity_lattice)
     
     # ===== 3. CREATE ENVIRONMENT =====
-    nx,ny = 600, 800
+    nx,ny = 1000, 500
     env = Environment2D(nx=nx, ny=ny, precision_policy="FP32FP32")
     
     # Setup boundary conditions
@@ -58,7 +58,7 @@ def main():
     
     # ===== 4. RUN SIMULATION =====
     # Initial drone state: start high up
-    start_pos = jnp.array([nx/2, ny - 150.0])
+    start_pos = jnp.array([nx/2, ny - 250.0])
     start_vel = jnp.array([0.0, 0.0])
     initial_drone_state = DroneState2D(start_pos, start_vel, 0.0, 0.0)
     
@@ -67,11 +67,11 @@ def main():
         drone=drone,
         initial_state=initial_drone_state,
         units=units,
-        save_interval=50,
+        save_interval=500,
         hover=True  # Set to True for hovering, False for landing
     )
     
-    num_steps = 40000
+    num_steps = 50000
     sim.run(num_steps=num_steps)
     
     # ===== 5. SAVE DATA =====

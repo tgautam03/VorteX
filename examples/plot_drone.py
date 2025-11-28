@@ -37,11 +37,11 @@ except FileNotFoundError:
     exit(1)
 
 # --- 1. Simulation & Geometry Parameters ---
-nx, ny = 600, 800
+nx, ny = 1000, 500
 
 # Create default drone to get geometry constants
 from vortex.drone2d import Drone2D
-dx = 0.01  # meters per lattice unit
+dx = 0.005  # meters per lattice unit
 u_real = 5.0  # m/s
 g_SI = 9.81  # m/s^2
 
@@ -50,7 +50,7 @@ g_SI = 9.81  # m/s^2
 u_lattice = 0.15  # lattice units per timestep (Fixed for LBM stability) 
 
 # Time scale
-dt = (u_lattice / u_real) * dx  # = 0.15/5 * 0.01 = 0.0003 s
+dt = (u_lattice / u_real) * dx  # = 0.15/5 * 0.005 = 0.00015 s
 
 # Gravity conversion
 GRAVITY = g_SI * dt**2 / dx
