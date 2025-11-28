@@ -20,7 +20,6 @@ from xlb.operator.macroscopic import Macroscopic
 
 from vortex.obstacles import cylinder
 from vortex.boundary import OpenBoundary, ConvectiveOutflowBC
-from vortex.utils import create_sponge_omega
 
 def main():
     #########################################
