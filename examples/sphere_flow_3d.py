@@ -32,19 +32,19 @@ def main():
     ############################################
     # Setting Simulation Environment Variables #
     ############################################
-    NX, NY, NZ = 100, 100, 100                   # number of points in x, y and z (units: lattice_units)
+    NX, NY, NZ = 400, 200, 200                   # number of points in x, y and z (units: lattice_units)
     DS = 0.01                                    # Equal grid spacing in x, y and z (units: meters)
-    u_lattice = 0.05                             # Lattice velocity for LBM stability (units: lattice_units/s)
+    u_lattice = 0.1                             # Lattice velocity for LBM stability (units: lattice_units/s)
     u_real = 5                                   # Means: u_lattice cooresponds to u_real (units: m/s)
     dt = (u_lattice / u_real) * DS               # Time spacing (units: seconds)
     t = 5                                       # How long should the simulation run (units: seconds)
     NT = int(t / dt)                             # Number of time steps to run simulation for t seconds
-    sphere_radius = 10                           # Radius of the sphere obstacle (units: lattice_units)
+    sphere_radius = 25                           # Radius of the sphere obstacle (units: lattice_units)
     loc = (NX//4, NY//2, NZ//2)                  # Location of sphere
 
     print(f"(NX, NY, NZ): ({NX},{NY},{NZ}), DS: {DS}, dt: {dt}, NT: {NT}")
 
-    Re = 2000                                    # Turbulence: Low (Re < 100), Medium (100 < Re < 1000), High (Re > 1000)
+    Re = 1000                                    # Turbulence: Low (Re < 100), Medium (100 < Re < 1000), High (Re > 1000)
     nu = u_lattice * (2*sphere_radius) / Re      # Fluid Kinematic Viscosity (units: m^2/s) 
     tau = 3 * nu + 0.5                           # Relaxation tau
     assert tau > 0.5, f"tau: {tau}"              # For stability (pushing it at 0.5, ideally would want atleast 0.7)

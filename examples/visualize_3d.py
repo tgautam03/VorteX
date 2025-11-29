@@ -32,7 +32,7 @@ class SimulationVisualizer:
         self.slice_z = self.nz // 2
         
         # Sphere Parameters
-        self.sphere_radius = 10
+        self.sphere_radius = 25
         self.sphere_center = (self.nx // 4, self.ny // 2, self.nz // 2)
         
         # Placeholders for meshes
