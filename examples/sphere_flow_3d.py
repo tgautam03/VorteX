@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(ROOT))
 
+from tqdm import tqdm
 import xlb
 import jax
 import jax.numpy as jnp
@@ -31,12 +32,12 @@ def main():
     ############################################
     # Setting Simulation Environment Variables #
     ############################################
-    NX, NY, NZ = 200, 100, 100                   # number of points in x, y and z (units: lattice_units)
+    NX, NY, NZ = 100, 100, 100                   # number of points in x, y and z (units: lattice_units)
     DS = 0.01                                    # Equal grid spacing in x, y and z (units: meters)
     u_lattice = 0.05                             # Lattice velocity for LBM stability (units: lattice_units/s)
     u_real = 5                                   # Means: u_lattice cooresponds to u_real (units: m/s)
     dt = (u_lattice / u_real) * DS               # Time spacing (units: seconds)
-    t = 2                                       # How long should the simulation run (units: seconds)
+    t = 5                                       # How long should the simulation run (units: seconds)
     NT = int(t / dt)                             # Number of time steps to run simulation for t seconds
     sphere_radius = 10                           # Radius of the sphere obstacle (units: lattice_units)
     loc = (NX//4, NY//2, NZ//2)                  # Location of sphere
@@ -79,25 +80,21 @@ def main():
     ########################################
     # Define and apply boundary conditions #
     ########################################
-    # Flow enters from x-z face (y=0) and leaves from everywhere else.
-    # We interpret "x-z face" as the plane y=0.
-    # So Inlet is at y=0.
-    # Outlets are at y=NY-1, x=0, x=NX-1, z=0, z=NZ-1.
+    # Flow enters from x=0 and leaves from everywhere else.
+    # Inlet is at x=0.
+    # Outlets are at x=NX-1, y=0, y=NY-1, z=0, z=NZ-1.
 
     # Outflow from right (x=NX-1)
     right_indices = [(NX - 1, y, z) for y in range(NY) for z in range(NZ)]
     right_outlet_bc = ConvectiveOutflowBC(direction=(-1, 0, 0), u_conv=u_lattice, indices=right_indices)       
     RIGHT_BC_ID = right_outlet_bc.id
 
-    # Outflow from left (x=0) - assuming it's an outlet too based on "leaves from everywhere else"
-    # But usually flow is unidirectional. If flow enters from y=0, it should leave at y=NY-1.
-    # If "leaves from everywhere else", maybe x=0, x=NX, z=0, z=NZ are also outlets?
-    # Let's implement that.
-    left_indices = [(0, y, z) for y in range(NY) for z in range(NZ)]
-    left_outlet_bc = ConvectiveOutflowBC(direction=(1, 0, 0), u_conv=u_lattice, indices=left_indices)
-    LEFT_BC_ID = left_outlet_bc.id
+    # Outflow from y=0 (Replacing old left outlet)
+    y0_indices = [(x, 0, z) for x in range(NX) for z in range(NZ)]
+    y0_outlet_bc = ConvectiveOutflowBC(direction=(0, 1, 0), u_conv=u_lattice, indices=y0_indices)
+    Y0_BC_ID = y0_outlet_bc.id
 
-    # Outflow from top (y=NY-1) - this is the main outlet if flow is along Y
+    # Outflow from top (y=NY-1)
     top_indices = [(x, NY-1, z) for x in range(NX) for z in range(NZ)]
     top_outlet_bc = ConvectiveOutflowBC(direction=(0, -1, 0), u_conv=u_lattice, indices=top_indices)           
     TOP_BC_ID = top_outlet_bc.id
@@ -123,8 +120,10 @@ def main():
     
     # x=NX-1
     bc_mask = bc_mask.at[0, -1, :, :].set(RIGHT_BC_ID)
-    # x=0
-    bc_mask = bc_mask.at[0, 0, :, :].set(LEFT_BC_ID)
+    # x=0 (Inlet - No BC applied here, handled by manual fix)
+    
+    # y=0
+    bc_mask = bc_mask.at[0, :, 0, :].set(Y0_BC_ID)
     # y=NY-1
     bc_mask = bc_mask.at[0, :, -1, :].set(TOP_BC_ID)
     # z=0
@@ -136,7 +135,7 @@ def main():
     bc_mask = bc_mask.at[0, sphere_mask].set(SPHERE_BC_ID)
 
     # List of all the boundary conditions (convert to tuple for JIT)
-    bcs = tuple([right_outlet_bc, left_outlet_bc, top_outlet_bc, bottom_outlet_bc, front_outlet_bc, sphere_bc])
+    bcs = tuple([right_outlet_bc, y0_outlet_bc, top_outlet_bc, bottom_outlet_bc, front_outlet_bc, sphere_bc])
 
     #############################################
     ############### Let's Simulate ##############
@@ -149,11 +148,9 @@ def main():
     # Initializing fields
     rho_init = jnp.ones((1, NX, NY, NZ))            # Initial Density = 1
     u_init = jnp.zeros((3, NX, NY, NZ))             
-    # Flow enters from x-z face (y=0) -> Flowing in +Y direction?
-    # "enters from x-z face" -> The face is the x-z plane. Normal is Y.
-    # So velocity should be in Y direction.
-    u_init = u_init.at[1,:,:,:].set(u_lattice)    # Y component of initial velocity
-    u_init = u_init.at[0,:,:,:].set(0)
+    # Flow enters from x=0 -> Flowing in +X direction
+    u_init = u_init.at[0,:,:,:].set(u_lattice)    # X component of initial velocity
+    u_init = u_init.at[1,:,:,:].set(0)
     u_init = u_init.at[2,:,:,:].set(0)
 
     # Equilibrium initialization
@@ -185,9 +182,9 @@ def main():
     cs2 = 1.0 / 3.0
     
     # Pre-compute inlet equilibrium
-    inlet_velocity = jnp.array([0.0, u_lattice, 0.0])
+    inlet_velocity = jnp.array([u_lattice, 0.0, 0.0])
     f_eq_inlet_base = eq_op(1.0, inlet_velocity)
-    f_eq_inlet_tiled = jnp.tile(f_eq_inlet_base.reshape(-1, 1, 1), (1, NX, NZ))
+    f_eq_inlet_tiled = jnp.tile(f_eq_inlet_base.reshape(-1, 1, 1), (1, NY, NZ))
 
     # One simulation step - OPTIMIZED
     @jax.jit
@@ -203,13 +200,13 @@ def main():
         
         # 0. INLET FIX (Pre-Streaming Stress Correction)
         # -----------------------------------------------------------
-        # Calculate Neighbor Non-Equilibrium (at y=1)
-        rho_n, u_n = macroscopic_op(f_prev[:, :, 1:2, :])
+        # Calculate Neighbor Non-Equilibrium (at x=1)
+        rho_n, u_n = macroscopic_op(f_prev[:, 1:2, :, :])
         f_eq_n = eq_op(rho_n, u_n)
-        f_neq_n = f_prev[:, :, 1:2, :] - f_eq_n
+        f_neq_n = f_prev[:, 1:2, :, :] - f_eq_n
         
         # Apply Fix: Inlet = Eq_Inlet + Neq_Neighbor (using pre-computed inlet equilibrium)
-        f_prev = f_prev.at[:, :, 0, :].set(f_eq_inlet_tiled + f_neq_n[:, :, 0, :])
+        f_prev = f_prev.at[:, 0, :, :].set(f_eq_inlet_tiled + f_neq_n[:, 0, :, :])
         # -----------------------------------------------------------
 
         # Get macroscopic fields (SINGLE CALCULATION - reused throughout)
@@ -281,6 +278,11 @@ def main():
     # Create frames directory for saving data
     frames_dir = results_dir / "frames"
     frames_dir.mkdir(exist_ok=True)
+    
+    # Clear all existing .npy files in frames directory
+    for npy_file in frames_dir.glob("*.npy"):
+        npy_file.unlink()
+    print(f"Cleared existing frames in {frames_dir}")
 
     f_prev = f_0
     
@@ -291,7 +293,8 @@ def main():
     compile_time = 0
     simulation_start = time.time()
 
-    for i in range(NT):
+    pbar = tqdm(range(NT), desc="Simulating", unit="step")
+    for i in pbar:
         iter_start = time.time()
         
         # Run step and get macroscopic fields
@@ -305,7 +308,7 @@ def main():
         # Track compilation time (first iteration is slower due to JIT)
         if i == 0:
             compile_time = iter_time
-            print(f"JIT compilation completed in {compile_time:.3f}s")
+            pbar.write(f"JIT compilation completed in {compile_time:.3f}s")
         
         f_prev = f_next
 
@@ -317,11 +320,16 @@ def main():
             np.save(frames_dir / f'step_{frame_count:05d}.npy', i)
             frame_count += 1
         
+        # Update progress bar with metrics every 100 steps
         if i % 100 == 0:
             u_mag = jnp.sqrt(u[0]**2 + u[1]**2 + u[2]**2)
-            mlups = (NX * NY * NZ) / (iter_time * 1e6)  # Million Lattice Updates Per Second
-            print(f"Step {i}: Max U = {jnp.max(u_mag):.4f}, Min Rho = {jnp.min(rho):.4f}, "
-                  f"Time = {iter_time*1000:.2f}ms, MLUPS = {mlups:.2f}")
+            mlups = (NX * NY * NZ) / (iter_time * 1e6)
+            pbar.set_postfix({
+                'Max_U': f'{jnp.max(u_mag):.4f}',
+                'Min_Rho': f'{jnp.min(rho):.4f}',
+                'Time_ms': f'{iter_time*1000:.1f}',
+                'MLUPS': f'{mlups:.1f}'
+            })
 
     total_time = time.time() - simulation_start
     avg_time_per_step = (total_time - compile_time) / (NT - 1) if NT > 1 else 0
