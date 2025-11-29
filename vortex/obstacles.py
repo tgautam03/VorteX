@@ -17,107 +17,124 @@ def sphere(NX, NY, NZ, radius, loc):
 
     return (X - loc[0])**2 + (Y - loc[1])**2 + (Z - loc[2])**2 <= radius**2
 
-def backyard_scene_scalable(NX, NY, NZ):
+def backyard_scene(NX, NY, NZ):
     """
-    Create a 3D boolean mask for a backyard scene where objects scale to fit the grid.
-    Ground is x-z plane at y = 0.
+    Create a 3D boolean mask for a backyard scene.
+    - Most objects (furniture, fences) are constrained to bottom 10% of NY.
+    - Tall trees extend to 50% of NY.
+    - Objects are horizontally smaller (s_xz reduced).
     
     Args:
-        NX, NY, NZ: Grid dimensions (integers)
-        
+        NX, NY, NZ: Grid dimensions (e.g., 400, 200, 200)
+    
     Returns:
         Boolean array of shape (NX, NY, NZ)
     """
-    import jnp
-    
     # Coordinate arrays
     x_coords = jnp.arange(NX)
     y_coords = jnp.arange(NY)
     z_coords = jnp.arange(NZ)
     X, Y, Z = jnp.meshgrid(x_coords, y_coords, z_coords, indexing="ij")
     
+    # Initialize empty mask
     mask = jnp.zeros((NX, NY, NZ), dtype=bool)
-
+    
     # --- Helper Functions ---
     def box(x_min, x_max, y_min, y_max, z_min, z_max):
         return (X >= x_min) & (X <= x_max) & \
                (Y >= y_min) & (Y <= y_max) & \
                (Z >= z_min) & (Z <= z_max)
-
+    
     def cylinder(x_c, z_c, radius, y_min, y_max):
         return ((X - x_c)**2 + (Z - z_c)**2 <= radius**2) & \
                (Y >= y_min) & (Y <= y_max)
-
+    
     def ellipsoid(x_c, y_c, z_c, rx, ry, rz):
         return ((X - x_c)**2 / rx**2 + (Y - y_c)**2 / ry**2 + \
                 (Z - z_c)**2 / rz**2) <= 1
 
     # --- SCALING FACTORS ---
-    # We define a "unit" relative to the smallest ground dimension to keep proportions
-    # consistent (circular objects stay circular).
-    scale = min(NX, NZ) / 100.0 
     
-    # --- 1. CENTRAL FURNITURE ---
-    # Table in the center
-    cx, cz = 0.3 * NX, 0.3 * NZ  # Center of patio area
-    table_h = 12 * scale
-    table_r = 6 * scale
+    # 1. Horizontal Scale (Reduced size)
+    # Previously 4.0. Now 2.5 to make objects smaller in X/Z.
+    s_xz = 2.5  
     
-    # Tabletop
-    mask |= cylinder(cx, cz, table_r, table_h, table_h + (2*scale))
-    # Table leg (central pillar style)
-    mask |= cylinder(cx, cz, 1.5 * scale, 0, table_h)
+    # 2. Vertical Scale (Low Objects)
+    # Constrain "low" objects (chairs, fence) to bottom 10%
+    # Base reference height is 40 units, so we scale it to fit 0.1 * NY
+    s_y_low = (0.1 * NY) / 40.0
     
-    # 4 Chairs around table
-    chair_dist = 10 * scale
-    seat_h = 6 * scale
-    seat_size = 4 * scale
+    # 3. Vertical Scale (High Objects)
+    # Constrain "tall" trees to reach 50% of domain height
+    # Base reference height is 100 units, so we scale it to fit 0.5 * NY
+    s_y_tall = (0.5 * NY) / 100.0
+
     
-    offsets = [(chair_dist, 0), (-chair_dist, 0), (0, chair_dist), (0, -chair_dist)]
-    for dx, dz in offsets:
-        chair_x, chair_z = cx + dx, cz + dz
+    # --- SECTION 1: TALL TREES (Up to 0.5 NY) ---
+    
+    # Tall Tree 1 (Back Left Corner)
+    tx1, tz1 = 0.15 * NX, 0.15 * NZ
+    h_tall1 = 80 * s_y_tall  # ~0.4 NY
+    mask |= cylinder(tx1, tz1, 3 * s_xz, 0, h_tall1) # Trunk
+    # Large canopy high up
+    mask |= ellipsoid(tx1, h_tall1, tz1, 12 * s_xz, 15 * s_y_tall, 12 * s_xz)
+    
+    # Tall Tree 2 (Front Right Corner)
+    tx2, tz2 = 0.85 * NX, 0.80 * NZ
+    h_tall2 = 90 * s_y_tall # ~0.45 NY
+    mask |= cylinder(tx2, tz2, 4 * s_xz, 0, h_tall2)
+    mask |= ellipsoid(tx2, h_tall2, tz2, 15 * s_xz, 20 * s_y_tall, 15 * s_xz)
+
+    
+    # --- SECTION 2: LOW FURNITURE (Bottom 10% NY) ---
+    cx, cz = 0.5 * NX, 0.5 * NZ # Center of domain
+    
+    # Table (Center)
+    t_h = 12 * s_y_low
+    t_r = 6 * s_xz
+    mask |= cylinder(cx, cz, t_r, t_h, t_h + 2*s_y_low) # Top
+    mask |= cylinder(cx, cz, 1.5 * s_xz, 0, t_h) # Leg
+    
+    # Chairs (Smaller footprint now)
+    cd = 10 * s_xz # Closer to table
+    seat_h = 8 * s_y_low
+    seat_w = 2.5 * s_xz
+    # Ensure leg radius is at least 2.0 to avoid sub-pixel LBM issues
+    leg_r = max(0.8 * s_xz, 2.0) 
+    
+    chair_offsets = [(cd, 0), (-cd, 0), (0, cd), (0, -cd)]
+    for dx, dz in chair_offsets:
+        chx, chz = cx + dx, cz + dz
         # Seat
-        mask |= box(chair_x - seat_size, chair_x + seat_size, 
-                    seat_h - (1*scale), seat_h, 
-                    chair_z - seat_size, chair_z + seat_size)
-        # Backrest (simple box)
-        mask |= box(chair_x - seat_size, chair_x + seat_size, 
-                    seat_h, seat_h + (8*scale), 
-                    chair_z + seat_size - (1*scale), chair_z + seat_size)
-        # Leg (central)
-        mask |= cylinder(chair_x, chair_z, 1*scale, 0, seat_h)
+        mask |= box(chx-seat_w, chx+seat_w, seat_h-s_y_low, seat_h, chz-seat_w, chz+seat_w)
+        # Backrest
+        mask |= box(chx-seat_w, chx+seat_w, seat_h, seat_h+8*s_y_low, chz+seat_w-s_xz, chz+seat_w)
+        # Legs
+        mask |= cylinder(chx-seat_w+s_xz, chz-seat_w+s_xz, leg_r, 0, seat_h)
+        mask |= cylinder(chx+seat_w-s_xz, chz-seat_w+s_xz, leg_r, 0, seat_h)
+        mask |= cylinder(chx-seat_w+s_xz, chz+seat_w-s_xz, leg_r, 0, seat_h)
+        mask |= cylinder(chx+seat_w-s_xz, chz+seat_w-s_xz, leg_r, 0, seat_h)
 
-    # --- 2. VEGETATION ---
-    # Large Tree (Back Right Corner)
-    tx, tz = 0.8 * NX, 0.8 * NZ
-    mask |= cylinder(tx, tz, 4 * scale, 0, 20 * scale) # Trunk
-    mask |= ellipsoid(tx, 25 * scale, tz, 12 * scale, 10 * scale, 12 * scale) # Canopy
-    
-    # Small Tree (Front Right)
-    tx2, tz2 = 0.8 * NX, 0.2 * NZ
-    mask |= cylinder(tx2, tz2, 2.5 * scale, 0, 12 * scale)
-    mask |= ellipsoid(tx2, 15 * scale, tz2, 8 * scale, 6 * scale, 8 * scale)
 
-    # Hedges/Bushes along the left wall
-    for i in range(5):
-        bx, bz = 0.1 * NX, (0.1 + i * 0.15) * NZ
-        mask |= ellipsoid(bx, 4 * scale, bz, 5 * scale, 4 * scale, 5 * scale)
+    # --- SECTION 3: LOW VEGETATION & STRUCTURES ---
+    
+    # Small Decorative Trees (Low)
+    mask |= ellipsoid(0.3 * NX, 15*s_y_low, 0.7 * NZ, 6*s_xz, 6*s_y_low, 6*s_xz)
+    mask |= cylinder(0.3 * NX, 0.7 * NZ, 1.5*s_xz, 0, 15*s_y_low)
+    
+    # Fence (Low barrier)
+    fence_x = NX - (5 * s_xz)
+    fence_h = 20 * s_y_low
+    # Posts spaced out
+    for z in range(int(0.05*NZ), int(0.95*NZ), int(10 * s_xz)):
+        mask |= box(fence_x, fence_x + 2*s_xz, 0, fence_h, z, z + 2*s_xz)
+    # Rails
+    mask |= box(fence_x, fence_x + 1*s_xz, 8 * s_y_low, 10 * s_y_low, 0, NZ)
+    mask |= box(fence_x, fence_x + 1*s_xz, 16 * s_y_low, 18 * s_y_low, 0, NZ)
 
-    # --- 3. STRUCTURES ---
-    # Fence (Back and Right edges)
-    post_thick = 2 * scale
-    rail_thick = 1 * scale
-    fence_h = 15 * scale
-    
-    # Back fence (along X axis at max Z)
-    z_fence = NZ - (5 * scale)
-    mask |= box(0, NX, 0, NX, 5 * scale, 5 * scale + rail_thick, z_fence, z_fence + post_thick) # Bottom rail
-    mask |= box(0, NX, 0, NX, 12 * scale, 12 * scale + rail_thick, z_fence, z_fence + post_thick) # Top rail
-    
-    # Vertical slats for fence
-    num_slats = 20
-    for i in range(num_slats):
-        slat_x = i * (NX / num_slats)
-        mask |= box(slat_x, slat_x + post_thick, 0, fence_h, z_fence, z_fence + post_thick)
+    # Grill
+    gx, gz = 0.2 * NX, 0.3 * NZ
+    mask |= box(gx, gx+15*s_xz, 0, 12 * s_y_low, gz, gz+8*s_xz)
 
     return mask
+
