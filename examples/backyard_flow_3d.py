@@ -32,7 +32,7 @@ def main():
     ############################################
     # Setting Simulation Environment Variables #
     ############################################
-    NX, NY, NZ = 400, 200, 200                   # number of points in x, y and z (units: lattice_units)
+    NX, NY, NZ = 500, 250, 250                   # number of points in x, y and z (units: lattice_units)
     DS = 0.01                                    # Equal grid spacing in x, y and z (units: meters)
     u_lattice = 0.1                             # Lattice velocity for LBM stability (units: lattice_units/s)
     u_real = 5                                   # Means: u_lattice cooresponds to u_real (units: m/s)
@@ -43,7 +43,7 @@ def main():
     print(f"(NX, NY, NZ): ({NX},{NY},{NZ}), DS: {DS}, dt: {dt}, NT: {NT}")
 
     Re = 100                                    # Turbulence: Low (Re < 100), Medium (100 < Re < 1000), High (Re > 1000)
-    L_c = 0.2*NX                                 # Characteristic length (units: lattice_units)     
+    L_c = 0.1*NX                                 # Characteristic length (units: lattice_units)     
     nu = u_lattice * (L_c) / Re                  # Fluid Kinematic Viscosity (units: m^2/s) 
     tau = 3 * nu + 0.5                           # Relaxation tau
     assert tau > 0.5, f"tau: {tau}"              # For stability (pushing it at 0.5, ideally would want atleast 0.7)

@@ -23,14 +23,14 @@ from vortex.obstacles import backyard_scene
 # Video Settings
 VIDEO_FPS = 10              # Frames per second for output video
                             # Duration will be auto-calculated: num_simulation_frames / VIDEO_FPS
-RENDER_WIDTH = 640         # Video width (e.g., 1920 for Full HD, 3840 for 4K)
-RENDER_HEIGHT = 480        # Video height (e.g., 1080 for Full HD, 2160 for 4K)
-FRAME_SKIP = 3              # Render every Nth simulation frame (higher = faster but choppier)
-VIDEO_QUALITY = 5           # Video quality 1-10 (lower = faster encoding but larger file)
+RENDER_WIDTH = 1920         # Video width (e.g., 1920 for Full HD, 3840 for 4K)
+RENDER_HEIGHT = 1080        # Video height (e.g., 1080 for Full HD, 2160 for 4K)
+FRAME_SKIP = 0              # Render every Nth simulation frame (higher = faster but choppier)
+VIDEO_QUALITY = 10           # Video quality 1-10 (lower = faster encoding but larger file)
 
 # Animation Settings
 NUM_SLICE_CYCLES = 2        # How many times slices traverse the domain during animation
-CAMERA_ROTATIONS = 1        # Number of full rotations around domain
+CAMERA_ROTATIONS = 0.75        # Number of full rotations around domain
 
 # Paths
 FRAMES_DIR = Path("examples/npy_files/frames")
@@ -252,8 +252,8 @@ def main():
     
     print("\nRendering frames...")
     # Apply frame skipping to reduce total frames to render
-    frames_to_render = list(range(0, total_video_frames, FRAME_SKIP))
-    print(f"Skipping frames: rendering {len(frames_to_render)} of {total_video_frames} frames (every {FRAME_SKIP}th frame)")
+    frames_to_render = list(range(0, total_video_frames, FRAME_SKIP + 1))
+    print(f"Skipping frames: rendering {len(frames_to_render)} of {total_video_frames} frames (every {FRAME_SKIP + 1}th frame)")
     
     for idx, video_frame in enumerate(frames_to_render):
         # Calculate progress (0.0 to 1.0)
