@@ -1,6 +1,6 @@
-# VorteX - 2D Cylinder Flow Simulation
+# VorteX - 2D Drone Landing Simulation
 
-Accelerated computational fluid dynamics using lattice Boltzmann method with XLB and JAX.
+Accelerated drone landing simulation using lattice Boltzmann method (LBM) with Immersed Boundary Method (IBM), powered by XLB and JAX.
 
 ## Quick Start
 
@@ -8,34 +8,79 @@ Accelerated computational fluid dynamics using lattice Boltzmann method with XLB
 # Activate virtual environment
 source .venv/bin/activate
 
-# 1. Run simulation (saves data to .npy files)
-python 2D_cylinder_flow.py
+# Run drone landing simulation
+PYTHONPATH=/home/rvn/pet-projects/VorteX python examples/drone_landing_2d.py
 
-# 2. Visualize results with interactive slider
-python plot_flow.py
+# Visualize results
+python plot_drone.py
 ```
 
-## Files
+## Architecture
 
-- **`2D_cylinder_flow.py`** - Main LBM simulation (saves 200 frames)
-- **`plot_flow.py`** - Interactive visualization with slider
+VorteX uses a modular architecture with clear separation of concerns:
+
+```
+vortex/
+├── units.py           # Unit conversions (SI ↔ lattice)
+├── environment2d.py   # LBM grid, BCs, fluid properties
+├── drone2d.py         # Drone geometry, state, forces
+├── ibm.py             # Immersed Boundary Method
+└── simulation.py      # Main simulation runner
+
+examples/
+└── drone_landing_2d.py  # Clean executable script
+```
 
 ## Features
 
 - **GPU-accelerated**: JAX backend with CUDA support (~50 MLUPS)
-- **Interactive visualization**: Matplotlib slider to scroll through 200 timesteps
-- **4 field views**: Velocity magnitude + streamlines, vorticity, density, x-velocity
-- **No Jupyter required**: Standalone matplotlib visualization
+- **Modular design**: Reusable components for different simulations
+- **Physically accurate**: Proper unit conversions and realistic drone physics
+- **IBM coupling**: Two-way fluid-structure interaction
+- **Interactive visualization**: Matplotlib with timestep slider
+
+## Example Usage
+
+```python
+from vortex.units import UnitConverter
+from vortex.environment2d import Environment2D
+from vortex.drone2d import Drone2D, DroneState2D
+from vortex.simulation import DroneSimulation2D
+
+# Setup units
+units = UnitConverter(dx=0.01, u_real=5.0, u_lattice=0.15)
+
+# Create environment
+env = Environment2D(nx=600, ny=800)
+env.setup_boundaries()
+env.calculate_lbm_parameters(Re_target=1000, L_char=50, u_char=0.15)
+
+# Create drone
+drone = Drone2D(gravity=units.gravity_to_lattice(-9.81))
+initial_state = DroneState2D(...)
+
+# Run simulation
+sim = DroneSimulation2D(env, drone, initial_state, units)
+sim.run(num_steps=10000)
+sim.save_data('drone')
+```
 
 ## Simulation Parameters
 
-- Grid: 800 × 200
-- Reynolds Number: 100
-- Cylinder: radius=10, center=(100,100)
-- Boundary conditions: Zou-He inlet/outlet, bounce-back walls/cylinder
+- **Grid**: 600 × 800 lattice points
+- **Reynolds Number**: 1000 (turbulent flow)
+- **Drone**: 2 kg mass, 0.5 m propellers
+- **Boundary conditions**: Ground bounce-back, open top/sides
+- **Physics**: Gravity, thrust, aerodynamic forces
 
 ## Requirements
 
 ```bash
 pip install jax xlb matplotlib numpy
 ```
+
+## Documentation
+
+- `drone_geometry_explained.md` - Drone geometry parameters
+- `physics_explanation.md` - Flow physics details
+- `walkthrough.md` - Architecture overview

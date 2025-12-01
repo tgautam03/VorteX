@@ -10,21 +10,33 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from matplotlib.widgets import Slider
 
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.append(str(ROOT))
+
+# Folder where results are
+script_dir = Path(__file__).resolve().parent
+results_dir = script_dir / "npy_files"
+results_dir.mkdir(exist_ok=True)
+
 # Load the saved data
 print("Loading simulation data...")
 try:
-    saved_steps = np.load('saved_steps.npy')
-    saved_rho = np.load('saved_rho.npy')
-    saved_u = np.load('saved_u.npy')
-    saved_vorticity = np.load('saved_vorticity.npy')
+    saved_steps = np.load(results_dir / 'cylinder_saved_steps.npy')
+    saved_rho = np.load(results_dir / 'cylinder_saved_rho.npy')
+    saved_u = np.load(results_dir / 'cylinder_saved_u.npy')
+    saved_vorticity = np.load(results_dir / 'cylinder_saved_vorticity.npy')
     print(f"Loaded {len(saved_steps)} frames")
 except FileNotFoundError:
     print("Error: Data files not found. Please run 2D_cylinder_flow.py first.")
     exit(1)
 
 # Simulation parameters
-nx, ny = 800, 200
+NX, NY = 800, 200
 cylinder_radius = 10
+loc = (NX//4, NY//2)
 
 # Pre-compute velocity magnitude for all frames
 print("Pre-computing velocity magnitudes...")
@@ -55,12 +67,12 @@ im1 = ax1.imshow(
     saved_u_mag[frame_idx].T,
     origin='lower',
     cmap='jet',
-    extent=[0, nx, 0, ny],
+    extent=[0, NX, 0, NY],
     vmin=0,
     vmax=u_mag_max,
     aspect='equal'
 )
-circle1 = Circle((ny//2, ny//2), cylinder_radius, color='black', zorder=10)
+circle1 = Circle((loc[0], loc[1]), cylinder_radius, color='black', zorder=10)
 ax1.add_patch(circle1)
 ax1.set_title('Velocity Magnitude')
 ax1.set_xlabel('X')
@@ -72,10 +84,10 @@ im2 = ax2.imshow(
     saved_vorticity[frame_idx].T,
     origin='lower',
     cmap='RdBu_r',
-    extent=[0, nx, 0, ny],
+    extent=[0, NX, 0, NY],
     aspect='equal'
 )
-circle2 = Circle((ny//2, ny//2), cylinder_radius, color='black', zorder=10)
+circle2 = Circle((loc[0], loc[1]), cylinder_radius, color='black', zorder=10)
 ax2.add_patch(circle2)
 ax2.set_title('Vorticity (ω = ∂v/∂x - ∂u/∂y)')
 ax2.set_xlabel('X')
@@ -87,12 +99,12 @@ im3 = ax3.imshow(
     saved_rho[frame_idx].T,
     origin='lower',
     cmap='viridis',
-    extent=[0, nx, 0, ny],
+    extent=[0, NX, 0, NY],
     vmin=rho_min,
     vmax=rho_max,
     aspect='equal'
 )
-circle3 = Circle((ny//2, ny//2), cylinder_radius, color='black', zorder=10)
+circle3 = Circle((loc[0], loc[1]), cylinder_radius, color='black', zorder=10)
 ax3.add_patch(circle3)
 ax3.set_title('Density (ρ)')
 ax3.set_xlabel('X')
@@ -104,12 +116,12 @@ im4 = ax4.imshow(
     saved_u[frame_idx, 0].T,
     origin='lower',
     cmap='coolwarm',
-    extent=[0, nx, 0, ny],
+    extent=[0, NX, 0, NY],
     vmin=ux_min,
     vmax=ux_max,
     aspect='equal'
 )
-circle4 = Circle((ny//2, ny//2), cylinder_radius, color='black', zorder=10)
+circle4 = Circle((loc[0], loc[1]), cylinder_radius, color='black', zorder=10)
 ax4.add_patch(circle4)
 ax4.set_title('X-Velocity Component (u_x)')
 ax4.set_xlabel('X')
